@@ -57,6 +57,41 @@ files rather than through the CLI module.
 
 ## Quick start
 
+### Linux
+
+Requires Python 3.11 or newer.
+
+```bash
+git clone https://github.com/tdmakepeace/Top500_AMD_data.git
+cd Top500_AMD_data
+
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Download list files from [top500.org](https://www.top500.org/lists/top500/), or copy your own
+`.xlsx` / `.csv` files into `data/raw/`, then run:
+
+```bash
+# Download the last 4 years of TOP500 lists (prompts for list type and years).
+# By default, clears data/raw/ and all working/ subfolders before downloading.
+python -m top500list.cli phase0
+
+# Non-interactive example: TOP500, 4 years
+python -m top500list.cli phase0 --list-type TOP500 --years 4
+
+# Run the full analysis pipeline (phases 1–2.3; run phase0 separately first)
+python -m top500list.cli run-all
+```
+
+For development dependencies (pytest, ruff), use `uv pip install -e ".[dev]"` or add
+`pytest`, `pytest-cov`, and `ruff` to your environment manually.
+
+### Windows
+
 ```powershell
 cd "c:\Users\tmakepea\OneDrive - Advanced Micro Devices Inc\Documents\Cursor Projects\Top500list"
 uv venv
