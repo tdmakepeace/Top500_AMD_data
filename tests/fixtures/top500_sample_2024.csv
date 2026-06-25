@@ -1,0 +1,5 @@
+Rank,Name,Site,Country,Manufacturer,Year,Processor,Processor Generation,Accelerator/Co-Processor,Rmax [TFlop/s]
+1,El Capitan,HPE Cray EX255a,United States,HPE,2024,AMD 4th Gen EPYC 24C 1.8GHz,AMD Zen-4 (Genoa),AMD Instinct MI300A,1809.0
+2,Frontier,HPE Cray EX235a,United States,HPE,2022,AMD Optimized 3rd Generation EPYC 64C 2GHz,AMD Zen-3 (Milan),AMD Instinct MI250X,1194.0
+3,Fugaku,Fujitsu A64FX,Japan,Fujitsu,2020,A64FX,ARMv8.2-A SVE,,442.0
+4,Aurora,Intel Xeon CPU Max 9470,United States,Intel,2023,Intel Xeon CPU Max 9470,Intel Sapphire Rapids,,1012.0

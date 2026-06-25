@@ -1,0 +1,6 @@
+Rank,Name,Site,Country,Manufacturer,Year,Processor,Processor Generation,Rmax [TFlop/s]
+1,New AMD System,Site A,Germany,HPE,2026,AMD EPYC 9655,AMD Zen-5 (Turin),500.0
+2,Recent AMD System,Site B,France,HPE,2025,AMD EPYC 9754,AMD Zen-4 (Genoa),450.0
+3,Older AMD System,Site C,United States,HPE,2024,AMD EPYC 7763,AMD Zen-3 (Milan),400.0
+4,Legacy AMD System,Site D,China,HPE,2021,AMD EPYC 7742,AMD Zen-2 (Rome),300.0
+5,Intel System,Site E,Japan,Intel,2025,Intel Xeon Platinum,Intel Sapphire Rapids,900.0

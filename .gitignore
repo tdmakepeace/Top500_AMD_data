@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+*.egg-info/
+dist/
+build/
+.DS_Store
+Thumbs.db
+
+# Working outputs are reproducible; keep folder structure via .gitkeep
+working/csv/*
+!working/csv/.gitkeep
+working/amd_per_file/*
+!working/amd_per_file/.gitkeep
+working/amd_by_year/*
+!working/amd_by_year/.gitkeep
+output/*
+!output/.gitkeep
+
+# Raw data may be large or licensed
+data/raw/*
+!data/raw/.gitkeep
