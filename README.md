@@ -171,7 +171,7 @@ file is open in Excel or locked by OneDrive, close the file or use `--skip-clean
 - `working/amd_by_year/amd_servers_by_build_year.csv` — unique AMD servers from the latest list edition
 - `working/amd_by_year/amd_build_year_counts_by_edition.csv` — unique counts per build year per list file
 - `working/amd_by_year/amd_build_year_transitions.csv` — added/dropped servers between consecutive list files
-- `output/amd_servers_report.pdf` — 5-page report (see below)
+- `output/amd_servers_report.pdf` — 6-page report (see below)
 
 ### Cohort definitions
 
@@ -187,6 +187,7 @@ accelerators are excluded from this cohort but may appear in GPU-specific charts
 | Interconnect list transition (page 4, top) | Processor Generation AMD, all build years |
 | Interconnect + build year (page 4, bottom) | Processor Generation AMD, build years Y…Y-3 |
 | Accelerator vendor stacked bar (page 5) | Processor Generation AMD; vendor from `Accelerator/Co-Processor` only |
+| Top systems tables (page 6) | Latest list edition; top 10 by Rank for Processor Technology AMD and Accelerator/Co-Processor AMD |
 
 ### PDF report pages
 
@@ -195,6 +196,10 @@ accelerators are excluded from this cohort but may appear in GPU-specific charts
 3. **Countries** — top 10 countries, country trends, build-year transition inventory
 4. **Interconnect** — interconnect family across editions; build year + interconnect combos
 5. **Accelerator vendors** — stacked bar per list file (NVIDIA, AMD, Intel, none, other)
+6. **Top systems** — two tables from the latest list edition (top 10 by Rank):
+   - Processor Technology AMD (`Processor Technology` when present, else `Processor Generation`)
+   - Accelerator/Co-Processor AMD (AMD Instinct / MI in the accelerator field)
+   - Columns: Rank, Name, Manufacturer, Country, Year, Processor, Accelerator/Co-Processor
 
 ## Re-iteration workflow
 

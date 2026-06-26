@@ -327,6 +327,49 @@ def _saveThreePanelPage(pdf: PdfPages, plotters: list[Callable[[plt.Axes], None]
     plt.close(fig)
 
 
+def _plotTopSystemsTable(ax: plt.Axes, table_frame: pd.DataFrame, title: str) -> None:
+    ax.axis("off")
+    ax.set_title(title, fontsize=10, pad=10)
+
+    if table_frame.empty:
+        ax.text(0.5, 0.5, "No matching systems in latest list", ha="center", va="center")
+        return
+
+    table = ax.table(
+        cellText=table_frame.values,
+        colLabels=list(table_frame.columns),
+        loc="upper center",
+        cellLoc="left",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(7)
+    table.scale(1, 1.35)
+
+
+def _saveTopSystemsPage(pdf: PdfPages, latest_list_frame: pd.DataFrame, latest_source_label: str) -> None:
+    processor_technology_table = amd_filter.buildTopSystemsDisplayFrame(
+        amd_filter.selectTopSystemsByRank(amd_filter.filterAmdProcessorTechnologyServers(latest_list_frame))
+    )
+    accelerator_table = amd_filter.buildTopSystemsDisplayFrame(
+        amd_filter.selectTopSystemsByRank(amd_filter.filterAmdAcceleratorServers(latest_list_frame))
+    )
+
+    fig, axes = plt.subplots(2, 1, figsize=(11, 11))
+    _plotTopSystemsTable(
+        axes[0],
+        processor_technology_table,
+        f"Top 10 Systems: Processor Technology AMD\n(latest list: {latest_source_label})",
+    )
+    _plotTopSystemsTable(
+        axes[1],
+        accelerator_table,
+        f"Top 10 Systems: Accelerator/Co-Processor AMD\n(latest list: {latest_source_label})",
+    )
+    fig.tight_layout()
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
 def buildAmdReportPdf(
     amd_per_file_dir: Path,
     amd_by_year_dir: Path,
@@ -357,6 +400,9 @@ def buildAmdReportPdf(
     counts_by_edition = pd.read_csv(counts_by_edition_path) if counts_by_edition_path.exists() else pd.DataFrame()
     csv_files = io_utils.loadWorkingCsvFiles(working_csv_dir)
     gpu_manifest = _buildGpuManifest(working_csv_dir)
+    latest_list_path = amd_cohort.sortAmdFilesByEdition(csv_files)[-1] if csv_files else None
+    latest_list_frame = pd.read_csv(latest_list_path) if latest_list_path is not None else pd.DataFrame()
+    latest_list_label = latest_list_path.name if latest_list_path is not None else "latest list"
 
     years = io_utils.recentBuildYears(span=BUILD_YEAR_SPAN)
     gpu_counts_by_edition = amd_cohort.buildPerEditionBuildYearCounts(
@@ -466,6 +512,8 @@ def buildAmdReportPdf(
         fig.tight_layout()
         pdf.savefig(fig)
         plt.close(fig)
+
+        _saveTopSystemsPage(pdf, latest_list_frame, latest_list_label)
 
     return output_path
 

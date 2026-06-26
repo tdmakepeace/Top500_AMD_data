@@ -45,6 +45,94 @@ def test_filterAmdProcessorGenerationServers() -> None:
     assert len(filtered) == 1
 
 
+def test_filterAmdProcessorTechnologyServers_uses_processor_technology_column() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "Rank": 1,
+                "Processor Technology": "AMD Zen-4 (Genoa)",
+                "Processor Generation": "Intel Sapphire Rapids",
+            },
+            {
+                "Rank": 2,
+                "Processor Technology": "Intel Sapphire Rapids",
+                "Processor Generation": "AMD Zen-4 (Genoa)",
+            },
+        ]
+    )
+
+    filtered = amd_filter.filterAmdProcessorTechnologyServers(frame)
+
+    assert len(filtered) == 1
+    assert int(filtered.iloc[0]["Rank"]) == 1
+
+
+def test_filterAmdProcessorTechnologyServers_falls_back_to_processor_generation() -> None:
+    frame = pd.DataFrame(
+        [
+            {"Rank": 1, "Processor Generation": "AMD Zen-4 (Genoa)"},
+            {"Rank": 2, "Processor Generation": "Intel Sapphire Rapids"},
+        ]
+    )
+
+    filtered = amd_filter.filterAmdProcessorTechnologyServers(frame)
+
+    assert len(filtered) == 1
+    assert int(filtered.iloc[0]["Rank"]) == 1
+
+
+def test_filterAmdAcceleratorServers() -> None:
+    frame = pd.DataFrame(
+        [
+            {"Rank": 1, "Accelerator/Co-Processor": "AMD Instinct MI300A"},
+            {"Rank": 2, "Accelerator/Co-Processor": "NVIDIA H100"},
+            {"Rank": 3, "Accelerator/Co-Processor": "AMD Instinct MI250X"},
+        ]
+    )
+
+    filtered = amd_filter.filterAmdAcceleratorServers(frame)
+
+    assert len(filtered) == 2
+    assert filtered["Rank"].tolist() == [1, 3]
+
+
+def test_selectTopSystemsByRank_returns_lowest_ranks_first() -> None:
+    frame = pd.DataFrame({"Rank": [42, 3, 11, 1]})
+
+    top = amd_filter.selectTopSystemsByRank(frame, top_n=2)
+
+    assert top["Rank"].tolist() == [1, 3]
+
+
+def test_buildTopSystemsDisplayFrame_maps_expected_columns() -> None:
+    frame = pd.DataFrame(
+        [
+            {
+                "Rank": 1,
+                "Name": "El Capitan",
+                "Manufacturer": "HPE",
+                "Country": "United States",
+                "Year": 2024,
+                "Processor": "AMD EPYC",
+                "Accelerator/Co-Processor": "AMD Instinct MI300A",
+            }
+        ]
+    )
+
+    display = amd_filter.buildTopSystemsDisplayFrame(frame)
+
+    assert list(display.columns) == [
+        "Rank",
+        "Name",
+        "Manufacturer",
+        "Country",
+        "Year",
+        "Processor",
+        "Accelerator/Co-Processor",
+    ]
+    assert display.iloc[0]["Name"] == "El Capitan"
+
+
 def test_classifyAcceleratorVendorForRow_uses_accelerator_column_only() -> None:
     row = pd.Series(
         {

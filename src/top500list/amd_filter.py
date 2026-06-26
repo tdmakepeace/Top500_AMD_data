@@ -69,6 +69,14 @@ PROCESSOR_GENERATION_COLUMN_CANDIDATES = [
     ["processor", "generation"],
 ]
 
+PROCESSOR_TECHNOLOGY_COLUMN_CANDIDATES = [
+    ["processor", "technology"],
+]
+
+MANUFACTURER_COLUMN_CANDIDATES = [
+    ["manufacturer"],
+]
+
 ACCELERATOR_VENDOR_CATEGORIES = ["NVIDIA", "AMD", "Intel", "none", "other"]
 
 NVIDIA_ACCELERATOR_PATTERN = re.compile(r"\bnvidia\b", re.IGNORECASE)
@@ -227,6 +235,25 @@ def resolveProcessorGenerationColumn(columns: list[str]) -> str | None:
     return resolveColumn(columns, PROCESSOR_GENERATION_COLUMN_CANDIDATES)
 
 
+def resolveProcessorTechnologyColumn(columns: list[str]) -> str | None:
+    return resolveColumn(columns, PROCESSOR_TECHNOLOGY_COLUMN_CANDIDATES)
+
+
+def resolveProcessorColumn(columns: list[str]) -> str | None:
+    for column in columns:
+        if normalizeColumnName(column) == "processor":
+            return column
+    return None
+
+
+def resolveManufacturerColumn(columns: list[str]) -> str | None:
+    return resolveColumn(columns, MANUFACTURER_COLUMN_CANDIDATES)
+
+
+def resolveNameColumn(columns: list[str]) -> str | None:
+    return resolveColumn(columns, [["name"]]) or resolveColumn(columns, [["computer"]])
+
+
 def isAmdProcessorGeneration(value: object) -> bool:
     return _isMatchingText(value, AMD_PROCESSOR_GENERATION_PATTERN)
 
@@ -241,6 +268,73 @@ def filterAmdProcessorGenerationServers(df: pd.DataFrame) -> pd.DataFrame:
 
     mask = df[processor_generation_column].apply(isAmdProcessorGeneration)
     return df.loc[mask].copy()
+
+
+def filterAmdProcessorTechnologyServers(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+
+    columns = list(df.columns)
+    processor_technology_column = resolveProcessorTechnologyColumn(columns)
+    if processor_technology_column is not None:
+        mask = df[processor_technology_column].apply(isAmdRelatedText)
+        return df.loc[mask].copy()
+
+    return filterAmdProcessorGenerationServers(df)
+
+
+def filterAmdAcceleratorServers(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+
+    accelerator_column = resolveAcceleratorColumn(list(df.columns))
+    if accelerator_column is None:
+        return df.iloc[0:0].copy()
+
+    mask = df[accelerator_column].apply(lambda value: classifyAcceleratorVendor(value) == "AMD")
+    return df.loc[mask].copy()
+
+
+def selectTopSystemsByRank(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+
+    rank_column = resolveColumn(list(df.columns), RANK_COLUMN_CANDIDATES)
+    if rank_column is None:
+        return df.head(top_n).copy()
+
+    working = df.copy()
+    working["_rank_sort"] = pd.to_numeric(working[rank_column], errors="coerce")
+    return (
+        working.sort_values("_rank_sort", ascending=True, na_position="last").head(top_n).drop(columns=["_rank_sort"])
+    )
+
+
+def buildTopSystemsDisplayFrame(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(
+            columns=["Rank", "Name", "Manufacturer", "Country", "Year", "Processor", "Accelerator/Co-Processor"]
+        )
+
+    columns = list(df.columns)
+    column_map = {
+        "Rank": resolveColumn(columns, RANK_COLUMN_CANDIDATES),
+        "Name": resolveNameColumn(columns),
+        "Manufacturer": resolveManufacturerColumn(columns),
+        "Country": resolveColumn(columns, COUNTRY_COLUMN_CANDIDATES),
+        "Year": resolveBuildYearColumn(columns),
+        "Processor": resolveProcessorColumn(columns),
+        "Accelerator/Co-Processor": resolveAcceleratorColumn(columns),
+    }
+
+    display = pd.DataFrame()
+    for label, source_column in column_map.items():
+        if source_column is None:
+            display[label] = ""
+        else:
+            display[label] = df[source_column].fillna("").astype(str)
+
+    return display
 
 
 def _isNumericAcceleratorValue(value: object) -> bool:
