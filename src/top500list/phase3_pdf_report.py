@@ -327,6 +327,35 @@ def _saveThreePanelPage(pdf: PdfPages, plotters: list[Callable[[plt.Axes], None]
     plt.close(fig)
 
 
+TOP_SYSTEMS_COLUMN_WIDTHS = [
+    0.04,  # Rank (4%)
+    0.12,  # Name (12%)
+    0.10,  # Manufacturer (10%)
+    0.12,  # Country (12%)
+    0.06,  # Year (6%)
+    0.40,  # Processor (40%)
+    0.20,  # Accelerator/Co-Processor (20%)
+]
+
+
+def _applyTopSystemsTableColumnWidths(table: object, column_widths: list[float]) -> None:
+    cells = table.get_celld()
+    if not cells:
+        return
+
+    max_row = max(row_index for row_index, _col_index in cells)
+    wrap_column_indexes = {5, 6}
+
+    for col_index, width in enumerate(column_widths):
+        for row_index in range(max_row + 1):
+            cell = cells.get((row_index, col_index))
+            if cell is None:
+                continue
+            cell.set_width(width)
+            if col_index in wrap_column_indexes:
+                cell.get_text().set_wrap(True)
+
+
 def _plotTopSystemsTable(ax: plt.Axes, table_frame: pd.DataFrame, title: str) -> None:
     ax.axis("off")
     ax.set_title(title, fontsize=10, pad=10)
@@ -343,6 +372,7 @@ def _plotTopSystemsTable(ax: plt.Axes, table_frame: pd.DataFrame, title: str) ->
     )
     table.auto_set_font_size(False)
     table.set_fontsize(7)
+    _applyTopSystemsTableColumnWidths(table, TOP_SYSTEMS_COLUMN_WIDTHS)
     table.scale(1, 1.35)
 
 
