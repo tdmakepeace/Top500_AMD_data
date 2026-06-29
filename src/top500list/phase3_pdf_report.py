@@ -32,6 +32,58 @@ def _annotateBarhCounts(ax: plt.Axes, bars: object, values: pd.Series) -> None:
         )
 
 
+def _formatGrowthPercent(current: int, previous: int) -> str | None:
+    if previous == 0:
+        if current == 0:
+            return None
+        return "new"
+    percent = ((current - previous) / previous) * 100
+    if percent > 0:
+        return f"+{percent:.0f}%"
+    if percent < 0:
+        return f"{percent:.0f}%"
+    return "0%"
+
+
+def _computeGrowthPercents(values: list[int]) -> list[str | None]:
+    growth_labels: list[str | None] = []
+    previous_value: int | None = None
+    for value in values:
+        if previous_value is None:
+            growth_labels.append(None)
+        else:
+            growth_labels.append(_formatGrowthPercent(value, previous_value))
+        previous_value = value
+    return growth_labels
+
+
+def _annotateBarhCountsWithGrowth(
+    ax: plt.Axes,
+    bars: object,
+    values: pd.Series,
+    growth_labels: list[str | None],
+) -> None:
+    for bar, value, growth in zip(bars, values, growth_labels, strict=True):
+        label = f" {int(value)}"
+        if growth:
+            label += f" ({growth})"
+        ax.text(
+            bar.get_width(),
+            bar.get_y() + bar.get_height() / 2,
+            label,
+            va="center",
+            ha="left",
+            fontsize=9,
+        )
+
+
+def _prepareManifestByEdition(manifest: pd.DataFrame) -> pd.DataFrame:
+    plot_frame = manifest.copy()
+    if "list_edition" not in plot_frame.columns and "source_csv" in plot_frame.columns:
+        plot_frame["list_edition"] = plot_frame["source_csv"].apply(amd_cohort.parseListEditionKey)
+    return plot_frame.sort_values("list_edition", ascending=True)
+
+
 def _annotateBarCounts(ax: plt.Axes, bars: object, values: pd.Series) -> None:
     for bar, value in zip(bars, values, strict=True):
         ax.text(
@@ -67,15 +119,21 @@ def _plotCountPerSource(
     count_column: str,
     title: str,
     ax: plt.Axes,
+    show_edition_growth: bool = False,
 ) -> None:
     if manifest.empty or count_column not in manifest.columns:
         ax.text(0.5, 0.5, "No data available", ha="center", va="center")
         ax.set_axis_off()
         return
 
-    plot_frame = manifest.sort_values(count_column, ascending=True)
-    bars = ax.barh(plot_frame["source_csv"], plot_frame[count_column], color="#ED1C24")
-    _annotateBarhCounts(ax, bars, plot_frame[count_column])
+    plot_frame = _prepareManifestByEdition(manifest)
+    values = plot_frame[count_column]
+    bars = ax.barh(plot_frame["source_csv"], values, color="#ED1C24")
+    if show_edition_growth:
+        growth_labels = _computeGrowthPercents([int(value) for value in values])
+        _annotateBarhCountsWithGrowth(ax, bars, values, growth_labels)
+    else:
+        _annotateBarhCounts(ax, bars, values)
     ax.set_title(title)
     ax.set_xlabel("Count")
     ax.set_ylabel("Source CSV")
@@ -264,10 +322,16 @@ def _buildGpuManifest(working_csv_dir: Path) -> pd.DataFrame:
     for csv_path in io_utils.loadWorkingCsvFiles(working_csv_dir):
         frame = pd.read_csv(csv_path)
         gpu_frame = amd_cohort.dedupeServers(amd_filter.filterAmdGpuServers(frame))
-        rows.append({"source_csv": csv_path.name, "amd_gpu_count": len(gpu_frame)})
+        rows.append(
+            {
+                "source_csv": csv_path.name,
+                "list_edition": amd_cohort.parseListEditionKey(csv_path.name),
+                "amd_gpu_count": len(gpu_frame),
+            }
+        )
 
     if not rows:
-        return pd.DataFrame(columns=["source_csv", "amd_gpu_count"])
+        return pd.DataFrame(columns=["source_csv", "list_edition", "amd_gpu_count"])
     return pd.DataFrame(rows)
 
 
@@ -294,6 +358,208 @@ GPU_MARKET_VENDOR_COLORS = {
     "Other": "#6E6E6E",
 }
 
+GROWTH_LABEL_COLOR = "#0071C5"
+MARKET_SHARE_LABEL_COLOR = "#FFEB3B"
+SEGMENT_INLINE_WIDTH_FRACTION = 0.06
+EXTERNAL_LABEL_LINE_COLOR = "#666666"
+
+
+def _formatMarketSharePercent(value: int, total: int) -> str:
+    if total <= 0 or value <= 0:
+        return "0%"
+    return f"{(value / total) * 100:.0f}%"
+
+
+def _minInlineSegmentWidth(ax: plt.Axes) -> float:
+    x_min, x_max = ax.get_xlim()
+    return (x_max - x_min) * SEGMENT_INLINE_WIDTH_FRACTION
+
+
+def _segmentFaceColor(bar: object) -> str | tuple[float, float, float, float]:
+    return bar.get_facecolor()
+
+
+def _drawLeaderLine(ax: plt.Axes, start_xy: tuple[float, float], end_xy: tuple[float, float]) -> None:
+    ax.plot(
+        [start_xy[0], end_xy[0]],
+        [start_xy[1], end_xy[1]],
+        color=EXTERNAL_LABEL_LINE_COLOR,
+        linewidth=0.8,
+        solid_capstyle="round",
+        zorder=6,
+    )
+
+
+def _placeColoredLabel(
+    ax: plt.Axes,
+    x: float,
+    y: float,
+    text: str,
+    color: str,
+    *,
+    facecolor: str | None = None,
+    fontsize: int = 6,
+    ha: str = "left",
+) -> None:
+    bbox_props = None
+    if facecolor is not None:
+        bbox_props = {
+            "boxstyle": "round,pad=0.15",
+            "facecolor": facecolor,
+            "edgecolor": EXTERNAL_LABEL_LINE_COLOR,
+            "linewidth": 0.4,
+        }
+    ax.text(
+        x,
+        y,
+        text,
+        ha=ha,
+        va="center",
+        fontsize=fontsize,
+        color=color,
+        bbox=bbox_props,
+        zorder=7,
+    )
+
+
+def _annotateStackedBarSegmentInline(
+    ax: plt.Axes,
+    bar: object,
+    value: int,
+    total: int,
+    growth: str | None,
+) -> None:
+    center_x = bar.get_x() + bar.get_width() / 2
+    center_y = bar.get_y() + bar.get_height() / 2
+    segment_left = bar.get_x()
+    segment_right = bar.get_x() + bar.get_width()
+    segment_color = _segmentFaceColor(bar)
+
+    _placeColoredLabel(
+        ax,
+        segment_left + bar.get_width() * 0.18,
+        center_y,
+        _formatMarketSharePercent(value, total),
+        MARKET_SHARE_LABEL_COLOR,
+        fontsize=6,
+        ha="center",
+    )
+    _placeColoredLabel(
+        ax,
+        center_x,
+        center_y,
+        str(int(value)),
+        "white",
+        facecolor=segment_color,
+        fontsize=7,
+        ha="center",
+    )
+    if growth:
+        _placeColoredLabel(
+            ax,
+            segment_right - bar.get_width() * 0.18,
+            center_y,
+            growth,
+            GROWTH_LABEL_COLOR,
+            fontsize=6,
+            ha="center",
+        )
+
+
+def _annotateStackedBarSegmentExternal(
+    ax: plt.Axes,
+    bar: object,
+    value: int,
+    total: int,
+    growth: str | None,
+    min_inline_width: float,
+) -> None:
+    center_y = bar.get_y() + bar.get_height() / 2
+    anchor_x = bar.get_x() + bar.get_width()
+    label_x = anchor_x + min_inline_width * 0.35
+    segment_color = _segmentFaceColor(bar)
+    vertical_step = bar.get_height() * 0.28
+
+    market_y = center_y + vertical_step
+    count_y = center_y
+    growth_y = center_y - vertical_step
+
+    _drawLeaderLine(ax, (anchor_x, center_y), (label_x, center_y))
+    _placeColoredLabel(
+        ax,
+        label_x,
+        market_y,
+        _formatMarketSharePercent(value, total),
+        MARKET_SHARE_LABEL_COLOR,
+        fontsize=6,
+    )
+    _placeColoredLabel(
+        ax,
+        label_x,
+        count_y,
+        str(int(value)),
+        "white",
+        facecolor=segment_color,
+        fontsize=7,
+    )
+    if growth:
+        _placeColoredLabel(ax, label_x, growth_y, growth, GROWTH_LABEL_COLOR, fontsize=6)
+
+
+def _annotateStackedBarSegment(
+    ax: plt.Axes,
+    bar: object,
+    value: int,
+    total: int,
+    growth: str | None,
+    min_inline_width: float,
+) -> None:
+    if value <= 0:
+        return
+
+    if bar.get_width() < min_inline_width:
+        _annotateStackedBarSegmentExternal(ax, bar, value, total, growth, min_inline_width)
+        return
+
+    _annotateStackedBarSegmentInline(ax, bar, value, total, growth)
+
+
+def _addAcceleratorBarLabelIndex(ax: plt.Axes) -> None:
+    index_items = [
+        (MARKET_SHARE_LABEL_COLOR, "black", "Market Share"),
+        ("white", "black", "Server Count"),
+        (GROWTH_LABEL_COLOR, GROWTH_LABEL_COLOR, "Growth"),
+    ]
+    start_x = 0.18
+    column_width = 0.22
+    index_y = -0.11
+
+    for index, (swatch_color, edge_color, label) in enumerate(index_items):
+        column_x = start_x + index * column_width
+        ax.text(
+            column_x,
+            index_y,
+            "  ",
+            transform=ax.transAxes,
+            fontsize=8,
+            va="center",
+            bbox={
+                "boxstyle": "square,pad=0.35",
+                "facecolor": swatch_color,
+                "edgecolor": edge_color,
+                "linewidth": 0.6,
+            },
+        )
+        ax.text(
+            column_x + 0.035,
+            index_y,
+            label,
+            transform=ax.transAxes,
+            fontsize=8,
+            va="center",
+            ha="left",
+        )
+
 
 def _plotStackedAcceleratorVendorByFile(
     accelerator_vendor_counts: pd.DataFrame,
@@ -310,13 +576,25 @@ def _plotStackedAcceleratorVendorByFile(
     y_positions = np.arange(len(file_labels))
     left_offsets = np.zeros(len(file_labels))
 
+    vendor_values: dict[str, list[int]] = {}
     for vendor_category in amd_filter.STACKED_ACCELERATOR_VENDOR_CATEGORIES:
         vendor_frame = plot_frame[plot_frame["accelerator_vendor"] == vendor_category]
         values = []
         for source_csv in file_labels:
             match = vendor_frame[vendor_frame["source_csv"] == source_csv]
             values.append(int(match["server_count"].iloc[0]) if not match.empty else 0)
+        vendor_values[vendor_category] = values
 
+    row_totals = np.array(
+        [
+            sum(vendor_values[vendor][row_index] for vendor in amd_filter.STACKED_ACCELERATOR_VENDOR_CATEGORIES)
+            for row_index in range(len(file_labels))
+        ]
+    )
+
+    pending_segments: list[tuple[object, int, int, str | None]] = []
+    for vendor_category in amd_filter.STACKED_ACCELERATOR_VENDOR_CATEGORIES:
+        values = vendor_values[vendor_category]
         values_array = np.array(values)
         bars = ax.barh(
             y_positions,
@@ -325,19 +603,14 @@ def _plotStackedAcceleratorVendorByFile(
             label=vendor_category,
             color=ACCELERATOR_VENDOR_COLORS[vendor_category],
         )
-        for bar, value in zip(bars, values_array, strict=True):
-            if value <= 0:
-                continue
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_y() + bar.get_height() / 2,
-                str(int(value)),
-                ha="center",
-                va="center",
-                fontsize=7,
-                color="white" if vendor_category in {"NVIDIA", "AMD", "Intel", "other"} else "black",
-            )
+        growth_labels = _computeGrowthPercents(values)
+        for bar, value, total, growth in zip(bars, values_array, row_totals, growth_labels, strict=True):
+            pending_segments.append((bar, int(value), int(total), growth))
         left_offsets += values_array
+
+    min_inline_width = _minInlineSegmentWidth(ax)
+    for bar, value, total, growth in pending_segments:
+        _annotateStackedBarSegment(ax, bar, value, total, growth, min_inline_width)
 
     ax.set_yticks(y_positions)
     ax.set_yticklabels(file_labels)
@@ -345,6 +618,10 @@ def _plotStackedAcceleratorVendorByFile(
     ax.set_xlabel("Number of Unique Servers")
     ax.set_ylabel("Source CSV")
     ax.legend(title="Accelerator/Co-Processor", fontsize=8, loc="lower right")
+    _addAcceleratorBarLabelIndex(ax)
+    x_min, x_max = ax.get_xlim()
+    ax.set_xlim(x_min, x_max + min_inline_width * 2.5)
+    ax.figure.subplots_adjust(bottom=0.16)
 
 
 def _plotVendorTrendByEdition(
@@ -549,6 +826,7 @@ def buildAmdReportPdf(
                     "amd_server_count",
                     "AMD Servers per TOP500 List File\n(Processor Generation: AMD)",
                     ax,
+                    show_edition_growth=True,
                 ),
                 lambda ax: _plotUniqueBuildYearLatestEdition(
                     counts_by_edition,
@@ -571,6 +849,7 @@ def buildAmdReportPdf(
                     "amd_gpu_count",
                     "AMD Instinct / MI GPU Systems per TOP500 List File",
                     ax,
+                    show_edition_growth=True,
                 ),
                 lambda ax: _plotUniqueBuildYearLatestEdition(
                     gpu_counts_by_edition,
@@ -629,7 +908,7 @@ def buildAmdReportPdf(
             "AMD Servers by Accelerator / Co-Processor Vendor per TOP500 List File\n"
             "(Processor Generation: AMD; classified from Accelerator/Co-Processor only)",
         )
-        fig.tight_layout()
+        fig.tight_layout(rect=[0.03, 0.12, 0.97, 0.95])
         pdf.savefig(fig)
         plt.close(fig)
 
@@ -674,7 +953,7 @@ def buildAmdReportPdf(
             "All Systems by Accelerator / Co-Processor Vendor per TOP500 List File\n"
             "(any processor; classified from Accelerator/Co-Processor only)",
         )
-        fig.tight_layout()
+        fig.tight_layout(rect=[0.03, 0.12, 0.97, 0.95])
         pdf.savefig(fig)
         plt.close(fig)
 
