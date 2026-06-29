@@ -5,6 +5,26 @@ import pandas as pd
 from top500list.paths import BUILD_YEAR_SPAN
 
 
+def buildOutputTempPath(output_path: Path) -> Path:
+    return output_path.with_name(f"{output_path.stem}_build{output_path.suffix}")
+
+
+def publishOutputFile(temp_path: Path, output_path: Path) -> Path:
+    if not temp_path.exists():
+        raise FileNotFoundError(f"Expected build artifact not found: {temp_path}")
+
+    try:
+        temp_path.replace(output_path)
+    except PermissionError as exc:
+        raise PermissionError(
+            f"Cannot overwrite {output_path} because it is open or locked. "
+            f"A fresh report was saved to {temp_path}. "
+            f"Close the PDF viewer and re-run, or open the build file instead."
+        ) from exc
+
+    return output_path
+
+
 def shouldSkip(output_path: Path, source_paths: list[Path], force: bool) -> bool:
     if force:
         return False

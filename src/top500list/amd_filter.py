@@ -93,6 +93,47 @@ INTEL_GPU_ACCELERATOR_PATTERN = re.compile(
 AMD_GPU_ACCELERATOR_PATTERN = re.compile(r"\b(?:AMD\s+Instinct|Instinct|MI\d{2,4}\w*)\b", re.IGNORECASE)
 AMD_PROCESSOR_GENERATION_PATTERN = re.compile(r"\bAMD\b", re.IGNORECASE)
 
+NVIDIA_ACCELERATOR_MODEL_B200_PATTERN = re.compile(
+    r"\bB200\b|\bGB200\b|\bDGX\s+B200\b|\bHGX\s+B200\b",
+    re.IGNORECASE,
+)
+NVIDIA_ACCELERATOR_MODEL_H200_PATTERN = re.compile(
+    r"\bH200\b|\bGH200\b|\bHGX\s+H200\b",
+    re.IGNORECASE,
+)
+NVIDIA_ACCELERATOR_MODEL_H100_PATTERN = re.compile(
+    r"\bH100\b|\bHGX\s+H100\b",
+    re.IGNORECASE,
+)
+
+NVIDIA_ACCELERATOR_MODEL_FAMILY_ORDER = [
+    "B200 (incl. GB200, HGX B200, DGX B200)",
+    "H200 (incl. GH200, HGX H200, H100/H200)",
+    "H100",
+    "Ampere and older (A100, V100, Volta, P100, A40, etc.)",
+]
+
+AMD_ACCELERATOR_MODEL_FAMILY_ORDER = [
+    "MI355X",
+    "MI300X",
+    "MI300A",
+    "MI200 series (MI250X, MI210)",
+]
+
+INTEL_ACCELERATOR_MODEL_FAMILY_ORDER = [
+    "Data Center GPU Max",
+    "Data Center GPU Max 1550",
+]
+
+NVIDIA_AMPERE_OLDER_DETAIL_ORDER = [
+    "A100 variants",
+    "Tesla V100",
+    "Volta GV100",
+    "Tesla P100",
+    "Tesla GP100",
+    "A40",
+]
+
 INTEL_PROCESSOR_TECHNOLOGY_PATTERN = re.compile(
     r"\b(?:Intel|Xeon|Pentium|Itanium|Phi|Sapphire Rapids|Cascade Lake|Skylake|Ice Lake|Cooper Lake)\b",
     re.IGNORECASE,
@@ -420,6 +461,135 @@ def classifyAcceleratorVendor(value: object) -> str:
 
 def classifyAcceleratorVendorForRow(row: pd.Series, accelerator_column: str) -> str:
     return classifyAcceleratorVendor(row.get(accelerator_column))
+
+
+def classifyNvidiaAcceleratorModelFamily(text: str) -> str:
+    if NVIDIA_ACCELERATOR_MODEL_B200_PATTERN.search(text):
+        return NVIDIA_ACCELERATOR_MODEL_FAMILY_ORDER[0]
+    if NVIDIA_ACCELERATOR_MODEL_H200_PATTERN.search(text):
+        return NVIDIA_ACCELERATOR_MODEL_FAMILY_ORDER[1]
+    if NVIDIA_ACCELERATOR_MODEL_H100_PATTERN.search(text):
+        return NVIDIA_ACCELERATOR_MODEL_FAMILY_ORDER[2]
+    return NVIDIA_ACCELERATOR_MODEL_FAMILY_ORDER[3]
+
+
+def classifyNvidiaAmpereOlderDetail(text: str) -> str:
+    upper = text.upper()
+    if re.search(r"A100", upper):
+        return "A100 variants"
+    if re.search(r"VOLTA|GV100", upper):
+        return "Volta GV100"
+    if re.search(r"V100", upper):
+        return "Tesla V100"
+    if re.search(r"GP100", upper):
+        return "Tesla GP100"
+    if re.search(r"P100", upper):
+        return "Tesla P100"
+    if re.search(r"\bA40\b", upper):
+        return "A40"
+    return "Other Ampere and older"
+
+
+def classifyAmdAcceleratorModelFamily(text: str) -> str:
+    upper = text.upper()
+    if re.search(r"\bMI355", upper):
+        return AMD_ACCELERATOR_MODEL_FAMILY_ORDER[0]
+    if re.search(r"\bMI300X\b", upper):
+        return AMD_ACCELERATOR_MODEL_FAMILY_ORDER[1]
+    if re.search(r"\bMI300A\b", upper):
+        return AMD_ACCELERATOR_MODEL_FAMILY_ORDER[2]
+    if re.search(r"\bMI2\d{2}", upper):
+        return AMD_ACCELERATOR_MODEL_FAMILY_ORDER[3]
+    return "Other AMD"
+
+
+def classifyIntelAcceleratorModelFamily(text: str) -> str:
+    upper = text.upper()
+    if "MAX 1550" in upper or "MAX1550" in upper:
+        return INTEL_ACCELERATOR_MODEL_FAMILY_ORDER[1]
+    if "MAX" in upper:
+        return INTEL_ACCELERATOR_MODEL_FAMILY_ORDER[0]
+    return "Other Intel"
+
+
+def _appendModelFamilyRows(
+    rows: list[tuple[str, str]],
+    subset: pd.DataFrame,
+    accelerator_column: str,
+    family_labels: list[str],
+    classify_family: Callable[[str], str],
+) -> None:
+    families = subset[accelerator_column].astype(str).apply(classify_family)
+    for family_label in family_labels:
+        family_count = int((families == family_label).sum())
+        if family_count > 0:
+            rows.append((f"  {family_label}", str(family_count)))
+
+
+def buildAcceleratorModelBreakdownRows(frame: pd.DataFrame) -> list[tuple[str, str]]:
+    accelerator_column = resolveAcceleratorColumn(list(frame.columns))
+    if accelerator_column is None or frame.empty:
+        return []
+
+    rows: list[tuple[str, str]] = []
+    working = frame.copy()
+    working["_vendor"] = working[accelerator_column].apply(classifyAcceleratorVendor)
+
+    rows.append((f"Total systems ({len(working)} deduped)", ""))
+
+    for vendor in ["NVIDIA", "AMD", "Intel", "other", "none"]:
+        subset = working[working["_vendor"] == vendor]
+        if subset.empty:
+            continue
+
+        if vendor == "none":
+            rows.append((f"None (no accelerator / numeric-only field) — {len(subset)}", ""))
+            continue
+
+        if vendor == "other":
+            rows.append((f"Other — {len(subset)}", ""))
+            for value, count in subset[accelerator_column].astype(str).value_counts().items():
+                rows.append((f"  {value}", str(int(count))))
+            continue
+
+        rows.append((f"{vendor} — {len(subset)}", ""))
+
+        if vendor == "NVIDIA":
+            families = subset[accelerator_column].astype(str).apply(classifyNvidiaAcceleratorModelFamily)
+            for family_label in NVIDIA_ACCELERATOR_MODEL_FAMILY_ORDER:
+                family_count = int((families == family_label).sum())
+                if family_count == 0:
+                    continue
+                rows.append((f"  {family_label}", str(family_count)))
+                if family_label != NVIDIA_ACCELERATOR_MODEL_FAMILY_ORDER[3]:
+                    continue
+                ampere_subset = subset[families == family_label]
+                details = ampere_subset[accelerator_column].astype(str).apply(classifyNvidiaAmpereOlderDetail)
+                for detail_label in NVIDIA_AMPERE_OLDER_DETAIL_ORDER:
+                    detail_count = int((details == detail_label).sum())
+                    if detail_count > 0:
+                        rows.append((f"    {detail_label}", str(detail_count)))
+            continue
+
+        if vendor == "AMD":
+            _appendModelFamilyRows(
+                rows,
+                subset,
+                accelerator_column,
+                AMD_ACCELERATOR_MODEL_FAMILY_ORDER,
+                classifyAmdAcceleratorModelFamily,
+            )
+            continue
+
+        _appendModelFamilyRows(
+            rows,
+            subset,
+            accelerator_column,
+            INTEL_ACCELERATOR_MODEL_FAMILY_ORDER,
+            classifyIntelAcceleratorModelFamily,
+        )
+
+    return rows
 
 
 def classifyProcessorTechnologyVendor(value: object) -> str:

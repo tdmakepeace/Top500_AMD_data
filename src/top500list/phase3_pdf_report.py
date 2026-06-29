@@ -223,7 +223,7 @@ def _plotSeriesTrendByEdition(
     ax.set_xlabel("TOP500 List File")
     ax.set_ylabel("Unique Server Count")
     ax.tick_params(axis="x", rotation=35)
-    ax.legend(title=legend_title, fontsize=7, loc="best")
+    ax.legend(title=legend_title, fontsize=7)
 
 
 def _plotCountryTrendByEdition(
@@ -290,7 +290,7 @@ def _plotBuildYearInterconnectTrendByEdition(
     ax.set_xlabel("TOP500 List File")
     ax.set_ylabel("Unique Server Count")
     ax.tick_params(axis="x", rotation=35)
-    ax.legend(title="Build Year | Interconnect", fontsize=7, loc="center left", bbox_to_anchor=(0.0, 0.5))
+    ax.legend(title="Build Year | Interconnect", fontsize=7)
 
 
 def _plotTransitionInventoryByEdition(
@@ -362,6 +362,81 @@ GROWTH_LABEL_COLOR = "#0071C5"
 MARKET_SHARE_LABEL_COLOR = "#FFEB3B"
 SEGMENT_INLINE_WIDTH_FRACTION = 0.06
 EXTERNAL_LABEL_LINE_COLOR = "#666666"
+CHART_RIGHT_BOUND_WITH_LEGEND = 0.74
+ACCELERATOR_LABEL_INDEX_Y = -0.14
+ACCELERATOR_LABEL_INDEX_START_X = 0.18
+ACCELERATOR_LABEL_INDEX_COLUMN_WIDTH = 0.22
+ACCELERATOR_Y_LABEL_MIN_LEFT_MARGIN = 0.10
+ACCELERATOR_Y_LABEL_MAX_LEFT_MARGIN = 0.40
+
+
+def _shortSourceCsvLabel(source_csv: str) -> str:
+    return Path(source_csv).stem
+
+
+def _leftMarginForYLabels(labels: list[str]) -> float:
+    if not labels:
+        return ACCELERATOR_Y_LABEL_MIN_LEFT_MARGIN
+    max_len = max(len(label) for label in labels)
+    margin = 0.07 + max_len * 0.009
+    return min(ACCELERATOR_Y_LABEL_MAX_LEFT_MARGIN, max(ACCELERATOR_Y_LABEL_MIN_LEFT_MARGIN, margin))
+
+
+def _shrinkAxesWidthForRightLegend(ax: plt.Axes, right_bound: float) -> None:
+    position = ax.get_position()
+    max_width = right_bound - position.x0
+    if max_width <= position.width * 0.55:
+        return
+    ax.set_position([position.x0, position.y0, max_width, position.height])
+
+
+def _placeLegendOutsideRight(ax: plt.Axes, *, title: str | None = None, fontsize: int = 7) -> None:
+    handles, labels = ax.get_legend_handles_labels()
+    if not labels:
+        return
+
+    if ax.get_legend() is not None:
+        ax.get_legend().remove()
+
+    ax.legend(
+        handles,
+        labels,
+        title=title,
+        fontsize=fontsize,
+        loc="center left",
+        bbox_to_anchor=(1.01, 0.5),
+        borderaxespad=0.0,
+        frameon=True,
+    )
+
+
+def _finalizeAxesLegendLayout(ax: plt.Axes, right_bound: float = CHART_RIGHT_BOUND_WITH_LEGEND) -> None:
+    if ax.get_legend() is None:
+        return
+
+    legend_title = ax.get_legend().get_title()
+    title_text = legend_title.get_text() if legend_title is not None else None
+    legend_fontsize = ax.get_legend().get_texts()[0].get_fontsize() if ax.get_legend().get_texts() else 7
+    _placeLegendOutsideRight(ax, title=title_text, fontsize=int(legend_fontsize))
+    _shrinkAxesWidthForRightLegend(ax, right_bound)
+
+
+def _placeLegendBottomRight(ax: plt.Axes, *, title: str | None = None, fontsize: int = 8) -> None:
+    handles, labels = ax.get_legend_handles_labels()
+    if not labels:
+        return
+
+    if ax.get_legend() is not None:
+        ax.get_legend().remove()
+
+    ax.legend(
+        handles,
+        labels,
+        title=title,
+        fontsize=fontsize,
+        loc="lower right",
+        frameon=True,
+    )
 
 
 def _formatMarketSharePercent(value: int, total: int) -> str:
@@ -530,15 +605,12 @@ def _addAcceleratorBarLabelIndex(ax: plt.Axes) -> None:
         ("white", "black", "Server Count"),
         (GROWTH_LABEL_COLOR, GROWTH_LABEL_COLOR, "Growth"),
     ]
-    start_x = 0.18
-    column_width = 0.22
-    index_y = -0.11
 
     for index, (swatch_color, edge_color, label) in enumerate(index_items):
-        column_x = start_x + index * column_width
+        column_x = ACCELERATOR_LABEL_INDEX_START_X + index * ACCELERATOR_LABEL_INDEX_COLUMN_WIDTH
         ax.text(
             column_x,
-            index_y,
+            ACCELERATOR_LABEL_INDEX_Y,
             "  ",
             transform=ax.transAxes,
             fontsize=8,
@@ -552,7 +624,7 @@ def _addAcceleratorBarLabelIndex(ax: plt.Axes) -> None:
         )
         ax.text(
             column_x + 0.035,
-            index_y,
+            ACCELERATOR_LABEL_INDEX_Y,
             label,
             transform=ax.transAxes,
             fontsize=8,
@@ -613,15 +685,24 @@ def _plotStackedAcceleratorVendorByFile(
         _annotateStackedBarSegment(ax, bar, value, total, growth, min_inline_width)
 
     ax.set_yticks(y_positions)
-    ax.set_yticklabels(file_labels)
+    display_labels = [_shortSourceCsvLabel(name) for name in file_labels]
+    ax.set_yticklabels(display_labels)
     ax.set_title(title)
     ax.set_xlabel("Number of Unique Servers")
     ax.set_ylabel("Source CSV")
-    ax.legend(title="Accelerator/Co-Processor", fontsize=8, loc="lower right")
-    _addAcceleratorBarLabelIndex(ax)
+    ax.legend(title="Accelerator/Co-Processor", fontsize=8)
     x_min, x_max = ax.get_xlim()
-    ax.set_xlim(x_min, x_max + min_inline_width * 2.5)
-    ax.figure.subplots_adjust(bottom=0.16)
+    ax.set_xlim(x_min, x_max + min_inline_width * 3.0)
+
+
+def _finalizeAcceleratorVendorChart(fig: plt.Figure, ax: plt.Axes) -> None:
+    y_labels = [label.get_text() for label in ax.get_yticklabels()]
+    left_margin = _leftMarginForYLabels(y_labels)
+    label_fontsize = 7 if len(y_labels) > 14 else 8
+    ax.tick_params(axis="y", labelsize=label_fontsize)
+    fig.subplots_adjust(left=left_margin, right=0.97, top=0.92, bottom=0.18)
+    _placeLegendBottomRight(ax, title="Accelerator/Co-Processor", fontsize=8)
+    _addAcceleratorBarLabelIndex(ax)
 
 
 def _plotVendorTrendByEdition(
@@ -659,23 +740,32 @@ def _plotVendorTrendByEdition(
     ax.set_xlabel("TOP500 List File")
     ax.set_ylabel("Unique Server Count")
     ax.tick_params(axis="x", rotation=35)
-    ax.legend(title=legend_title, fontsize=7, loc="best")
+    ax.legend(title=legend_title, fontsize=7)
+
+
+def _applyLegendMargins(fig: plt.Figure, axes: list[plt.Axes]) -> None:
+    fig.tight_layout()
+    for axis in axes:
+        if axis.get_legend() is not None:
+            _finalizeAxesLegendLayout(axis)
 
 
 def _saveTwoPanelPage(pdf: PdfPages, plotters: list[Callable[[plt.Axes], None]]) -> None:
     fig, axes = plt.subplots(2, 1, figsize=(11, 8.5))
-    for axis, plotter in zip(axes, plotters, strict=True):
+    axes_list = list(axes)
+    for axis, plotter in zip(axes_list, plotters, strict=True):
         plotter(axis)
-    fig.tight_layout()
+    _applyLegendMargins(fig, axes_list)
     pdf.savefig(fig)
     plt.close(fig)
 
 
 def _saveThreePanelPage(pdf: PdfPages, plotters: list[Callable[[plt.Axes], None]]) -> None:
     fig, axes = plt.subplots(3, 1, figsize=(11, 11))
-    for axis, plotter in zip(axes, plotters, strict=True):
+    axes_list = list(axes)
+    for axis, plotter in zip(axes_list, plotters, strict=True):
         plotter(axis)
-    fig.tight_layout()
+    _applyLegendMargins(fig, axes_list)
     pdf.savefig(fig)
     plt.close(fig)
 
@@ -753,6 +843,40 @@ def _saveTopSystemsPage(pdf: PdfPages, latest_list_frame: pd.DataFrame, latest_s
     plt.close(fig)
 
 
+def _saveAcceleratorModelBreakdownPage(
+    pdf: PdfPages,
+    latest_list_frame: pd.DataFrame,
+    latest_source_label: str,
+) -> None:
+    breakdown_rows = amd_filter.buildAcceleratorModelBreakdownRows(amd_cohort.dedupeServers(latest_list_frame))
+
+    fig, axis = plt.subplots(figsize=(11, 8.5))
+    axis.axis("off")
+    axis.set_title(
+        "Accelerator / Co-Processor Model Breakdown\n"
+        f"(latest list: {latest_source_label}; all systems; classified from Accelerator/Co-Processor only)",
+        fontsize=10,
+        pad=12,
+    )
+
+    if not breakdown_rows:
+        axis.text(0.5, 0.5, "No accelerator data available", ha="center", va="center")
+    else:
+        table = axis.table(
+            cellText=breakdown_rows,
+            colLabels=["Model Family", "Count"],
+            loc="upper center",
+            cellLoc="left",
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(8)
+        table.scale(1, 1.15)
+
+    fig.tight_layout()
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
 def buildAmdReportPdf(
     amd_per_file_dir: Path,
     amd_by_year_dir: Path,
@@ -815,9 +939,10 @@ def buildAmdReportPdf(
     accelerator_vendor_counts_all_systems = amd_cohort.buildPerEditionAcceleratorVendorCountsAllSystems(csv_files)
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    temp_output_path = io_utils.buildOutputTempPath(output_path)
     print(f"WRITE {output_path.name}")
 
-    with PdfPages(output_path) as pdf:
+    with PdfPages(temp_output_path) as pdf:
         _saveThreePanelPage(
             pdf,
             [
@@ -908,7 +1033,7 @@ def buildAmdReportPdf(
             "AMD Servers by Accelerator / Co-Processor Vendor per TOP500 List File\n"
             "(Processor Generation: AMD; classified from Accelerator/Co-Processor only)",
         )
-        fig.tight_layout(rect=[0.03, 0.12, 0.97, 0.95])
+        _finalizeAcceleratorVendorChart(fig, axis)
         pdf.savefig(fig)
         plt.close(fig)
 
@@ -953,10 +1078,13 @@ def buildAmdReportPdf(
             "All Systems by Accelerator / Co-Processor Vendor per TOP500 List File\n"
             "(any processor; classified from Accelerator/Co-Processor only)",
         )
-        fig.tight_layout(rect=[0.03, 0.12, 0.97, 0.95])
+        _finalizeAcceleratorVendorChart(fig, axis)
         pdf.savefig(fig)
         plt.close(fig)
 
+        _saveAcceleratorModelBreakdownPage(pdf, latest_list_frame, latest_list_label)
+
+    io_utils.publishOutputFile(temp_output_path, output_path)
     return output_path
 
 

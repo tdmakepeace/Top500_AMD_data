@@ -200,3 +200,54 @@ def test_classifyAcceleratorVendorForRow_uses_accelerator_column_only() -> None:
     vendor = amd_filter.classifyAcceleratorVendorForRow(row, "Accelerator/Co-Processor")
 
     assert vendor == "none"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("NVIDIA B200 SXM 180GB", "B200 (incl. GB200, HGX B200, DGX B200)"),
+        ("NVIDIA GH200 Superchip", "H200 (incl. GH200, HGX H200, H100/H200)"),
+        ("NVIDIA H100 SXM5 80GB", "H100"),
+        ("NVIDIA A100", "Ampere and older (A100, V100, Volta, P100, A40, etc.)"),
+    ],
+)
+def test_classifyNvidiaAcceleratorModelFamily(value: str, expected: str) -> None:
+    assert amd_filter.classifyNvidiaAcceleratorModelFamily(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("AMD Instinct MI355X", "MI355X"),
+        ("AMD Instinct MI300X", "MI300X"),
+        ("AMD Instinct MI300A", "MI300A"),
+        ("AMD Instinct MI250X", "MI200 series (MI250X, MI210)"),
+    ],
+)
+def test_classifyAmdAcceleratorModelFamily(value: str, expected: str) -> None:
+    assert amd_filter.classifyAmdAcceleratorModelFamily(value) == expected
+
+
+def test_buildAcceleratorModelBreakdownRows_groups_latest_style_values() -> None:
+    frame = pd.DataFrame(
+        {
+            "Accelerator/Co-Processor": [
+                "NVIDIA H100 SXM5 80GB",
+                "NVIDIA B200 SXM 180GB",
+                "NVIDIA A100",
+                "AMD Instinct MI300A",
+                "",
+                "8138240",
+            ]
+        }
+    )
+
+    rows = amd_filter.buildAcceleratorModelBreakdownRows(frame)
+
+    assert rows[0] == ("Total systems (6 deduped)", "")
+    assert ("NVIDIA — 3", "") in rows
+    assert ("  H100", "1") in rows
+    assert ("  B200 (incl. GB200, HGX B200, DGX B200)", "1") in rows
+    assert ("AMD — 1", "") in rows
+    assert ("  MI300A", "1") in rows
+    assert ("None (no accelerator / numeric-only field) — 2", "") in rows

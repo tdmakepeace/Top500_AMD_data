@@ -154,12 +154,15 @@ def phase2_2(
 def phase2_3(amd_per_file_dir: Path, amd_by_year_dir: Path, output_dir: Path, force: bool) -> None:
     """Build PDF report with graphs from phase 2 outputs."""
     _printHeader("Phase 2.3: PDF Report")
-    output_path = phase3_pdf_report.runPhase2_3(
-        amd_per_file_dir=amd_per_file_dir,
-        amd_by_year_dir=amd_by_year_dir,
-        output_dir=output_dir,
-        force=force,
-    )
+    try:
+        output_path = phase3_pdf_report.runPhase2_3(
+            amd_per_file_dir=amd_per_file_dir,
+            amd_by_year_dir=amd_by_year_dir,
+            output_dir=output_dir,
+            force=force,
+        )
+    except PermissionError as exc:
+        raise SystemExit(str(exc)) from exc
     click.echo(f"Report written to {output_path}")
 
 
