@@ -22,8 +22,10 @@ def readTabularFile(path: Path) -> pd.DataFrame:
         return pd.read_csv(path)
     if suffix == ".tsv":
         return pd.read_csv(path, sep="\t")
-    if suffix in {".xlsx", ".xls"}:
-        return pd.read_excel(path)
+    if suffix == ".xlsx":
+        return pd.read_excel(path, engine="openpyxl")
+    if suffix == ".xls":
+        return pd.read_excel(path, engine="xlrd")
     raise ValueError(f"Unsupported file type: {path.suffix}")
 
 

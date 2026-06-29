@@ -79,6 +79,12 @@ MANUFACTURER_COLUMN_CANDIDATES = [
 
 ACCELERATOR_VENDOR_CATEGORIES = ["NVIDIA", "AMD", "Intel", "none", "other"]
 
+STACKED_ACCELERATOR_VENDOR_CATEGORIES = ["NVIDIA", "AMD", "Intel", "other"]
+
+PROCESSOR_TECHNOLOGY_VENDOR_CATEGORIES = ["AMD", "Intel", "NVIDIA", "ARM", "Other"]
+
+GPU_MARKET_VENDOR_CATEGORIES = ["AMD", "Intel", "NVIDIA", "Other"]
+
 NVIDIA_ACCELERATOR_PATTERN = re.compile(r"\bnvidia\b", re.IGNORECASE)
 INTEL_GPU_ACCELERATOR_PATTERN = re.compile(
     r"\bintel\s+(?:data\s+center\s+gpu|xeon\s+max|ponte\s+vecchio|max\s+\d|gpu\s+max)\b",
@@ -86,6 +92,31 @@ INTEL_GPU_ACCELERATOR_PATTERN = re.compile(
 )
 AMD_GPU_ACCELERATOR_PATTERN = re.compile(r"\b(?:AMD\s+Instinct|Instinct|MI\d{2,4}\w*)\b", re.IGNORECASE)
 AMD_PROCESSOR_GENERATION_PATTERN = re.compile(r"\bAMD\b", re.IGNORECASE)
+
+INTEL_PROCESSOR_TECHNOLOGY_PATTERN = re.compile(
+    r"\b(?:Intel|Xeon|Pentium|Itanium|Phi|Sapphire Rapids|Cascade Lake|Skylake|Ice Lake|Cooper Lake)\b",
+    re.IGNORECASE,
+)
+NVIDIA_PROCESSOR_TECHNOLOGY_PATTERN = re.compile(r"\b(?:NVIDIA|Grace(?:\s+Hopper)?)\b", re.IGNORECASE)
+ARM_PROCESSOR_TECHNOLOGY_PATTERN = re.compile(
+    r"\b(?:ARM|Neoverse|A64FX|Ampere|ThunderX|Graviton|ARMv\d)\b",
+    re.IGNORECASE,
+)
+
+MANUFACTURER_GROUP_RULES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"asustek|\basus\b", re.IGNORECASE), "ASUSTeK"),
+    (re.compile(r"\bnvidia\b", re.IGNORECASE), "NVIDIA"),
+    (re.compile(r"\bhpe\b|hewlett\s*packard|hp\s*enterprise|\bcray\b", re.IGNORECASE), "HPE"),
+    (re.compile(r"\bdell\b", re.IGNORECASE), "Dell"),
+    (re.compile(r"\blenovo\b", re.IGNORECASE), "Lenovo"),
+    (re.compile(r"\bibm\b", re.IGNORECASE), "IBM"),
+    (re.compile(r"\bfujitsu\b", re.IGNORECASE), "Fujitsu"),
+    (re.compile(r"\bsugon\b|dawning", re.IGNORECASE), "Sugon"),
+    (re.compile(r"\binspur\b", re.IGNORECASE), "Inspur"),
+    (re.compile(r"\batos\b|\bbull\b", re.IGNORECASE), "Atos"),
+    (re.compile(r"\bintel\b", re.IGNORECASE), "Intel"),
+    (re.compile(r"\bamd\b", re.IGNORECASE), "AMD"),
+]
 
 
 def normalizeColumnName(name: object) -> str:
@@ -239,6 +270,14 @@ def resolveProcessorTechnologyColumn(columns: list[str]) -> str | None:
     return resolveColumn(columns, PROCESSOR_TECHNOLOGY_COLUMN_CANDIDATES)
 
 
+def resolveProcessorTechnologySourceColumn(columns: list[str]) -> str | None:
+    return (
+        resolveProcessorTechnologyColumn(columns)
+        or resolveProcessorGenerationColumn(columns)
+        or resolveProcessorColumn(columns)
+    )
+
+
 def resolveProcessorColumn(columns: list[str]) -> str | None:
     for column in columns:
         if normalizeColumnName(column) == "processor":
@@ -381,6 +420,71 @@ def classifyAcceleratorVendor(value: object) -> str:
 
 def classifyAcceleratorVendorForRow(row: pd.Series, accelerator_column: str) -> str:
     return classifyAcceleratorVendor(row.get(accelerator_column))
+
+
+def classifyProcessorTechnologyVendor(value: object) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "Other"
+
+    text = str(value).strip()
+    if not text:
+        return "Other"
+
+    if isAmdRelatedText(text) or AMD_PROCESSOR_GENERATION_PATTERN.search(text):
+        return "AMD"
+    if _isMatchingText(text, NVIDIA_PROCESSOR_TECHNOLOGY_PATTERN):
+        return "NVIDIA"
+    if _isMatchingText(text, INTEL_PROCESSOR_TECHNOLOGY_PATTERN):
+        return "Intel"
+    if _isMatchingText(text, ARM_PROCESSOR_TECHNOLOGY_PATTERN):
+        return "ARM"
+    return "Other"
+
+
+def classifyProcessorTechnologyVendorForRow(row: pd.Series, processor_column: str) -> str:
+    return classifyProcessorTechnologyVendor(row.get(processor_column))
+
+
+def classifyGpuMarketVendor(value: object) -> str | None:
+    vendor = classifyAcceleratorVendor(value)
+    if vendor == "none":
+        return None
+    if vendor in {"AMD", "Intel", "NVIDIA"}:
+        return vendor
+    return "Other"
+
+
+def classifyGpuMarketVendorForRow(row: pd.Series, accelerator_column: str) -> str:
+    return classifyGpuMarketVendor(row.get(accelerator_column))
+
+
+def normalizeManufacturerGroup(value: object) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "Unknown"
+
+    text = str(value).strip()
+    if not text:
+        return "Unknown"
+
+    for pattern, group_name in MANUFACTURER_GROUP_RULES:
+        if pattern.search(text):
+            return group_name
+
+    return text
+
+
+def normalizeInterconnectFamily(value: object) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "Unknown"
+
+    text = str(value).strip()
+    if not text:
+        return "Unknown"
+
+    normalized = normalizeColumnName(text)
+    if normalized in {"gigabit ethernet", "ethernet"}:
+        return "Ethernet"
+    return text
 
 
 def buildSummaryColumns(df: pd.DataFrame) -> list[str]:

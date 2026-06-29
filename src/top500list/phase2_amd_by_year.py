@@ -7,7 +7,6 @@ from top500list.paths import (
     AMD_BUILD_YEAR_COUNTS_BY_EDITION_NAME,
     AMD_BUILD_YEAR_TRANSITIONS_NAME,
     AMD_BY_YEAR_COMBINED_NAME,
-    BUILD_YEAR_SPAN,
     WORKING_AMD_BY_YEAR_DIR,
     WORKING_AMD_PER_FILE_DIR,
 )
@@ -23,7 +22,8 @@ def buildAmdTableByBuildYear(
     if not amd_files:
         raise FileNotFoundError(f"No per-file AMD tables found in {amd_per_file_dir}")
 
-    years = io_utils.recentBuildYears(reference_year=reference_year, span=BUILD_YEAR_SPAN)
+    amd_frames = [pd.read_csv(amd_path) for amd_path in amd_files]
+    years = amd_cohort.recentBuildYearsWithData(amd_frames, reference_year=reference_year)
     amd_by_year_dir.mkdir(parents=True, exist_ok=True)
     combined_path = amd_by_year_dir / AMD_BY_YEAR_COMBINED_NAME
     counts_by_edition_path = amd_by_year_dir / AMD_BUILD_YEAR_COUNTS_BY_EDITION_NAME

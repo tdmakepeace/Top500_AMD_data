@@ -13,7 +13,6 @@ from top500list.paths import (
     AMD_BY_YEAR_COMBINED_NAME,
     AMD_PER_FILE_MANIFEST_NAME,
     AMD_REPORT_PDF_NAME,
-    BUILD_YEAR_SPAN,
     OUTPUT_DIR,
     WORKING_AMD_BY_YEAR_DIR,
     WORKING_AMD_PER_FILE_DIR,
@@ -200,14 +199,40 @@ def _plotBuildYearInterconnectTrendByEdition(
     ax: plt.Axes,
     title: str,
 ) -> None:
-    _plotSeriesTrendByEdition(
-        counts_by_combo,
-        "combo_label",
-        combo_labels,
-        ax,
-        title,
-        "Build Year | Interconnect",
-    )
+    if counts_by_combo.empty or not combo_labels:
+        ax.text(0.5, 0.5, "No trend data available", ha="center", va="center")
+        ax.set_axis_off()
+        return
+
+    plot_frame = counts_by_combo.sort_values(["list_edition", "combo_label"])
+    edition_labels, edition_order = _editionLabels(plot_frame)
+
+    for combo_label in combo_labels:
+        group = plot_frame[plot_frame["combo_label"] == combo_label]
+        if group.empty:
+            continue
+        ordered = group.set_index("list_edition").reindex(edition_order)
+        interconnect_label = combo_label.split(" | ", maxsplit=1)[-1].lower()
+        if "infiniband" in interconnect_label:
+            line_style = "--"
+        elif interconnect_label == "ethernet":
+            line_style = "-"
+        else:
+            line_style = "-"
+        ax.plot(
+            edition_labels,
+            ordered["server_count"].fillna(0),
+            marker="o",
+            linewidth=2,
+            linestyle=line_style,
+            label=combo_label,
+        )
+
+    ax.set_title(title)
+    ax.set_xlabel("TOP500 List File")
+    ax.set_ylabel("Unique Server Count")
+    ax.tick_params(axis="x", rotation=35)
+    ax.legend(title="Build Year | Interconnect", fontsize=7, loc="center left", bbox_to_anchor=(0.0, 0.5))
 
 
 def _plotTransitionInventoryByEdition(
@@ -254,10 +279,26 @@ ACCELERATOR_VENDOR_COLORS = {
     "other": "#6E6E6E",
 }
 
+PROCESSOR_TECHNOLOGY_VENDOR_COLORS = {
+    "AMD": "#ED1C24",
+    "Intel": "#0071C5",
+    "NVIDIA": "#76B900",
+    "ARM": "#FF8C00",
+    "Other": "#6E6E6E",
+}
+
+GPU_MARKET_VENDOR_COLORS = {
+    "AMD": "#ED1C24",
+    "Intel": "#0071C5",
+    "NVIDIA": "#76B900",
+    "Other": "#6E6E6E",
+}
+
 
 def _plotStackedAcceleratorVendorByFile(
     accelerator_vendor_counts: pd.DataFrame,
     ax: plt.Axes,
+    title: str,
 ) -> None:
     if accelerator_vendor_counts.empty:
         ax.text(0.5, 0.5, "No accelerator data available", ha="center", va="center")
@@ -269,7 +310,7 @@ def _plotStackedAcceleratorVendorByFile(
     y_positions = np.arange(len(file_labels))
     left_offsets = np.zeros(len(file_labels))
 
-    for vendor_category in amd_filter.ACCELERATOR_VENDOR_CATEGORIES:
+    for vendor_category in amd_filter.STACKED_ACCELERATOR_VENDOR_CATEGORIES:
         vendor_frame = plot_frame[plot_frame["accelerator_vendor"] == vendor_category]
         values = []
         for source_csv in file_labels:
@@ -300,13 +341,48 @@ def _plotStackedAcceleratorVendorByFile(
 
     ax.set_yticks(y_positions)
     ax.set_yticklabels(file_labels)
-    ax.set_title(
-        "AMD Servers by Accelerator / Co-Processor Vendor per TOP500 List File\n"
-        "(Processor Generation: AMD; classified from Accelerator/Co-Processor only)"
-    )
+    ax.set_title(title)
     ax.set_xlabel("Number of Unique Servers")
     ax.set_ylabel("Source CSV")
     ax.legend(title="Accelerator/Co-Processor", fontsize=8, loc="lower right")
+
+
+def _plotVendorTrendByEdition(
+    counts_frame: pd.DataFrame,
+    series_column: str,
+    series_values: list[str],
+    color_map: dict[str, str],
+    ax: plt.Axes,
+    title: str,
+    legend_title: str,
+) -> None:
+    if counts_frame.empty or not series_values:
+        ax.text(0.5, 0.5, "No trend data available", ha="center", va="center")
+        ax.set_axis_off()
+        return
+
+    plot_frame = counts_frame.sort_values(["list_edition", series_column])
+    edition_labels, edition_order = _editionLabels(plot_frame)
+
+    for series_value in series_values:
+        group = plot_frame[plot_frame[series_column] == series_value]
+        if group.empty:
+            continue
+        ordered = group.set_index("list_edition").reindex(edition_order)
+        ax.plot(
+            edition_labels,
+            ordered["server_count"].fillna(0),
+            marker="o",
+            linewidth=2,
+            label=series_value,
+            color=color_map.get(series_value),
+        )
+
+    ax.set_title(title)
+    ax.set_xlabel("TOP500 List File")
+    ax.set_ylabel("Unique Server Count")
+    ax.tick_params(axis="x", rotation=35)
+    ax.legend(title=legend_title, fontsize=7, loc="best")
 
 
 def _saveTwoPanelPage(pdf: PdfPages, plotters: list[Callable[[plt.Axes], None]]) -> None:
@@ -414,10 +490,12 @@ def buildAmdReportPdf(
     output_path = output_dir / AMD_REPORT_PDF_NAME
 
     amd_files = sorted(path for path in amd_per_file_dir.glob("*_amd.csv") if path.is_file())
+    csv_files = io_utils.loadWorkingCsvFiles(working_csv_dir)
     source_paths = [
         path for path in [manifest_path, by_year_path, counts_by_edition_path, transitions_path] if path.exists()
     ]
     source_paths.extend(amd_files)
+    source_paths.extend(csv_files)
     if not source_paths:
         raise FileNotFoundError("Run phase 2.1 and 2.2 before generating the PDF report.")
 
@@ -428,13 +506,12 @@ def buildAmdReportPdf(
     manifest = pd.read_csv(manifest_path)
     latest_servers = pd.read_csv(by_year_path) if by_year_path.exists() else pd.DataFrame()
     counts_by_edition = pd.read_csv(counts_by_edition_path) if counts_by_edition_path.exists() else pd.DataFrame()
-    csv_files = io_utils.loadWorkingCsvFiles(working_csv_dir)
     gpu_manifest = _buildGpuManifest(working_csv_dir)
     latest_list_path = amd_cohort.sortAmdFilesByEdition(csv_files)[-1] if csv_files else None
     latest_list_frame = pd.read_csv(latest_list_path) if latest_list_path is not None else pd.DataFrame()
     latest_list_label = latest_list_path.name if latest_list_path is not None else "latest list"
-
-    years = io_utils.recentBuildYears(span=BUILD_YEAR_SPAN)
+    amd_frames = [pd.read_csv(amd_path) for amd_path in amd_files]
+    years = amd_cohort.recentBuildYearsWithData(amd_frames)
     gpu_counts_by_edition = amd_cohort.buildPerEditionBuildYearCounts(
         csv_files,
         years,
@@ -451,6 +528,14 @@ def buildAmdReportPdf(
     year_interconnect_counts = amd_cohort.buildPerEditionBuildYearInterconnectCounts(amd_files, years)
     year_interconnect_combos = amd_cohort.topBuildYearInterconnectCombosFromFrame(latest_servers, years)
     accelerator_vendor_counts = amd_cohort.buildPerEditionAcceleratorVendorCounts(amd_files)
+    processor_technology_vendor_counts = amd_cohort.buildPerEditionProcessorTechnologyVendorCounts(csv_files)
+    gpu_market_vendor_counts = amd_cohort.buildPerEditionGpuMarketVendorCounts(csv_files)
+    top_manufacturer_groups = amd_cohort.topManufacturerGroupsFromFrame(latest_list_frame)
+    manufacturer_counts_by_edition = amd_cohort.buildPerEditionManufacturerCounts(
+        csv_files,
+        top_manufacturer_groups,
+    )
+    accelerator_vendor_counts_all_systems = amd_cohort.buildPerEditionAcceleratorVendorCountsAllSystems(csv_files)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"WRITE {output_path.name}")
@@ -538,12 +623,60 @@ def buildAmdReportPdf(
         )
 
         fig, axis = plt.subplots(figsize=(11, 8.5))
-        _plotStackedAcceleratorVendorByFile(accelerator_vendor_counts, axis)
+        _plotStackedAcceleratorVendorByFile(
+            accelerator_vendor_counts,
+            axis,
+            "AMD Servers by Accelerator / Co-Processor Vendor per TOP500 List File\n"
+            "(Processor Generation: AMD; classified from Accelerator/Co-Processor only)",
+        )
         fig.tight_layout()
         pdf.savefig(fig)
         plt.close(fig)
 
         _saveTopSystemsPage(pdf, latest_list_frame, latest_list_label)
+
+        _saveThreePanelPage(
+            pdf,
+            [
+                lambda ax: _plotVendorTrendByEdition(
+                    processor_technology_vendor_counts,
+                    "processor_technology_vendor",
+                    amd_filter.PROCESSOR_TECHNOLOGY_VENDOR_CATEGORIES,
+                    PROCESSOR_TECHNOLOGY_VENDOR_COLORS,
+                    ax,
+                    "Processor Technology Vendor Across List Editions\n(all systems)",
+                    "CPU Vendor",
+                ),
+                lambda ax: _plotVendorTrendByEdition(
+                    gpu_market_vendor_counts,
+                    "gpu_vendor",
+                    amd_filter.GPU_MARKET_VENDOR_CATEGORIES,
+                    GPU_MARKET_VENDOR_COLORS,
+                    ax,
+                    "GPU Vendor Across List Editions\n(all systems; Accelerator/Co-Processor)",
+                    "GPU Vendor",
+                ),
+                lambda ax: _plotSeriesTrendByEdition(
+                    manufacturer_counts_by_edition,
+                    "manufacturer_group",
+                    top_manufacturer_groups,
+                    ax,
+                    "Top 10 Manufacturer Groups Across List Editions\n(all systems; grouped by common name)",
+                    "Manufacturer",
+                ),
+            ],
+        )
+
+        fig, axis = plt.subplots(figsize=(11, 8.5))
+        _plotStackedAcceleratorVendorByFile(
+            accelerator_vendor_counts_all_systems,
+            axis,
+            "All Systems by Accelerator / Co-Processor Vendor per TOP500 List File\n"
+            "(any processor; classified from Accelerator/Co-Processor only)",
+        )
+        fig.tight_layout()
+        pdf.savefig(fig)
+        plt.close(fig)
 
     return output_path
 

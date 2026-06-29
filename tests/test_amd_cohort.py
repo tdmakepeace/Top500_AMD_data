@@ -26,6 +26,25 @@ def test_dedupeServers_counts_each_system_once(tmp_path: Path) -> None:
     assert len(deduped) == 2
 
 
+def test_recentBuildYearsWithData_limits_to_years_present_in_frames() -> None:
+    frames = [
+        pd.DataFrame({"Year": [2026, 2025, 2024]}),
+        pd.DataFrame({"Year": [2023, 2020]}),
+    ]
+
+    years = amd_cohort.recentBuildYearsWithData(frames, reference_year=2026, span=6)
+
+    assert years == [2026, 2025, 2024, 2023]
+
+
+def test_recentBuildYearsWithData_falls_back_to_candidate_window_when_no_years() -> None:
+    frames = [pd.DataFrame({"Name": ["Alpha"]})]
+
+    years = amd_cohort.recentBuildYearsWithData(frames, reference_year=2026, span=6)
+
+    assert years == [2026, 2025, 2024, 2023, 2022, 2021]
+
+
 def test_buildPerEditionBuildYearCounts_uses_unique_servers_per_file(tmp_path: Path) -> None:
     first_path = tmp_path / "TOP500_202306_amd.csv"
     second_path = tmp_path / "TOP500_202311_amd.csv"
@@ -127,8 +146,8 @@ def test_buildPerEditionInterconnectCounts_tracks_unique_servers(tmp_path: Path)
     counts = amd_cohort.buildPerEditionInterconnectCounts([amd_path])
     combo_counts = amd_cohort.buildPerEditionBuildYearInterconnectCounts([amd_path], [2024, 2023])
 
-    assert set(counts["interconnect_family"]) == {"Infiniband", "Gigabit Ethernet"}
-    assert set(combo_counts["combo_label"]) == {"2024 | Infiniband", "2024 | Gigabit Ethernet"}
+    assert set(counts["interconnect_family"]) == {"Infiniband", "Ethernet"}
+    assert set(combo_counts["combo_label"]) == {"2024 | Infiniband", "2024 | Ethernet"}
 
 
 def test_buildPerEditionAcceleratorVendorCounts_uses_processor_generation_and_accel_name(
@@ -173,3 +192,97 @@ def test_buildPerEditionAcceleratorVendorCounts_uses_processor_generation_and_ac
     assert by_vendor["none"] == 1
     assert by_vendor["other"] == 0
     assert by_vendor["Intel"] == 0
+
+
+def test_buildPerEditionProcessorTechnologyVendorCounts_uses_all_systems(tmp_path: Path) -> None:
+    first_path = tmp_path / "TOP500_202306.csv"
+    second_path = tmp_path / "TOP500_202311.csv"
+    pd.DataFrame(
+        [
+            {
+                "System ID": 1,
+                "Name": "A",
+                "Processor Generation": "AMD Zen-4 (Genoa)",
+                "Accelerator/Co-Processor": "AMD Instinct MI300A",
+            },
+            {
+                "System ID": 2,
+                "Name": "B",
+                "Processor Generation": "Intel Sapphire Rapids",
+                "Accelerator/Co-Processor": "NVIDIA H100",
+            },
+        ]
+    ).to_csv(first_path, index=False)
+    pd.DataFrame(
+        [
+            {
+                "System ID": 3,
+                "Name": "C",
+                "Processor Generation": "ARMv8.2-A SVE",
+                "Accelerator/Co-Processor": "",
+            },
+        ]
+    ).to_csv(second_path, index=False)
+
+    counts = amd_cohort.buildPerEditionProcessorTechnologyVendorCounts([first_path, second_path])
+    amd_first = counts[
+        (counts["source_csv"] == "TOP500_202306.csv") & (counts["processor_technology_vendor"] == "AMD")
+    ]["server_count"].iloc[0]
+    arm_second = counts[
+        (counts["source_csv"] == "TOP500_202311.csv") & (counts["processor_technology_vendor"] == "ARM")
+    ]["server_count"].iloc[0]
+
+    assert amd_first == 1
+    assert arm_second == 1
+
+
+def test_buildPerEditionAcceleratorVendorCountsAllSystems_includes_non_amd_cpus(tmp_path: Path) -> None:
+    list_path = tmp_path / "TOP500_202406.csv"
+    pd.DataFrame(
+        [
+            {
+                "System ID": 1,
+                "Name": "A",
+                "Processor Generation": "Intel Sapphire Rapids",
+                "Accelerator/Co-Processor": "NVIDIA H100",
+            },
+            {
+                "System ID": 2,
+                "Name": "B",
+                "Processor Generation": "AMD Zen-4 (Genoa)",
+                "Accelerator/Co-Processor": "AMD Instinct MI300A",
+            },
+        ]
+    ).to_csv(list_path, index=False)
+
+    counts = amd_cohort.buildPerEditionAcceleratorVendorCountsAllSystems([list_path])
+    nvidia_count = counts[counts["accelerator_vendor"] == "NVIDIA"]["server_count"].iloc[0]
+
+    assert nvidia_count == 1
+
+
+def test_buildPerEditionGpuMarketVendorCounts_excludes_systems_without_gpu(tmp_path: Path) -> None:
+    list_path = tmp_path / "TOP500_202406.csv"
+    pd.DataFrame(
+        [
+            {
+                "System ID": 1,
+                "Name": "A",
+                "Processor Generation": "AMD Zen-4 (Genoa)",
+                "Accelerator/Co-Processor": "NVIDIA H100",
+            },
+            {
+                "System ID": 2,
+                "Name": "B",
+                "Processor Generation": "AMD Zen-4 (Genoa)",
+                "Accelerator/Co-Processor": "",
+            },
+        ]
+    ).to_csv(list_path, index=False)
+
+    counts = amd_cohort.buildPerEditionGpuMarketVendorCounts([list_path])
+    other_count = counts[counts["gpu_vendor"] == "Other"]["server_count"].iloc[0]
+    nvidia_count = counts[counts["gpu_vendor"] == "NVIDIA"]["server_count"].iloc[0]
+
+    assert nvidia_count == 1
+    assert other_count == 0

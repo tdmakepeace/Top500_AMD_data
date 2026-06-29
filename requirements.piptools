@@ -2,3 +2,4 @@ click
 matplotlib
 openpyxl
 pandas
+xlrd>=2.0.1

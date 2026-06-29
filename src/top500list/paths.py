@@ -14,4 +14,4 @@ AMD_BY_YEAR_COMBINED_NAME = "amd_servers_by_build_year.csv"
 AMD_BUILD_YEAR_COUNTS_BY_EDITION_NAME = "amd_build_year_counts_by_edition.csv"
 AMD_BUILD_YEAR_TRANSITIONS_NAME = "amd_build_year_transitions.csv"
 AMD_PER_FILE_MANIFEST_NAME = "amd_per_file_manifest.csv"
-BUILD_YEAR_SPAN = 4
+BUILD_YEAR_SPAN = 6

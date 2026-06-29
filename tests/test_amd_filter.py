@@ -133,6 +133,60 @@ def test_buildTopSystemsDisplayFrame_maps_expected_columns() -> None:
     assert display.iloc[0]["Name"] == "El Capitan"
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("AMD Zen-4 (Genoa)", "AMD"),
+        ("Intel Sapphire Rapids", "Intel"),
+        ("ARMv8.2-A SVE", "ARM"),
+        ("NVIDIA Grace Hopper", "NVIDIA"),
+        ("Fujitsu A64FX", "ARM"),
+        ("", "Other"),
+    ],
+)
+def test_classifyProcessorTechnologyVendor(value: object, expected: str) -> None:
+    assert amd_filter.classifyProcessorTechnologyVendor(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("AMD Instinct MI300A", "AMD"),
+        ("NVIDIA H100", "NVIDIA"),
+        ("Intel Data Center GPU Max", "Intel"),
+        ("", None),
+        ("PEZY-SC3", "Other"),
+    ],
+)
+def test_classifyGpuMarketVendor(value: object, expected: str | None) -> None:
+    assert amd_filter.classifyGpuMarketVendor(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("Gigabit Ethernet", "Ethernet"),
+        ("Ethernet", "Ethernet"),
+        ("Infiniband HDR", "Infiniband HDR"),
+    ],
+)
+def test_normalizeInterconnectFamily(value: object, expected: str) -> None:
+    assert amd_filter.normalizeInterconnectFamily(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("ASUSTeK Computer Inc.", "ASUSTeK"),
+        ("Asus", "ASUSTeK"),
+        ("NVIDIA Corporation", "NVIDIA"),
+        ("Hewlett Packard Enterprise", "HPE"),
+    ],
+)
+def test_normalizeManufacturerGroup(value: object, expected: str) -> None:
+    assert amd_filter.normalizeManufacturerGroup(value) == expected
+
+
 def test_classifyAcceleratorVendorForRow_uses_accelerator_column_only() -> None:
     row = pd.Series(
         {

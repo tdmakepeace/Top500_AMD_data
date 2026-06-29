@@ -116,7 +116,7 @@ def phase2_1(working_csv_dir: Path, amd_per_file_dir: Path, force: bool) -> None
     "--reference-year",
     type=int,
     default=None,
-    help="Anchor year for the 4-year window (defaults to current year).",
+    help="Anchor year for the build-year window (defaults to current year; up to 6 years with data).",
 )
 @click.option("--force", is_flag=True, help="Re-run even when working files are up to date.")
 def phase2_2(
@@ -125,7 +125,7 @@ def phase2_2(
     reference_year: int | None,
     force: bool,
 ) -> None:
-    """Filter AMD servers to build years: Y, Y-1, Y-2, Y-3."""
+    """Filter AMD servers to recent build years (up to 6 years where data is present)."""
     _printHeader("Phase 2.2: AMD Servers by Build Year")
     frame = phase2_amd_by_year.runPhase2_2(
         amd_per_file_dir=amd_per_file_dir,

@@ -24,7 +24,7 @@ flowchart LR
 | 0 | `phase0` | Clear `data/raw/` and `working/`, then download TOP500 or Green500 Excel files from [top500.org](https://www.top500.org/lists/top500/) (Green500 uses `/files/green500/green500_top_YYYYMM.xlsx`). Use `--skip-clean` to keep existing files. |
 | 1 | `phase1` | Convert raw TOP500 files to normalized CSV |
 | 2.1 | `phase2-1` | Filter servers with Processor Generation containing AMD; dedupe by System ID |
-| 2.2 | `phase2-2` | Keep AMD servers with build year Y, Y-1, Y-2, Y-3 |
+| 2.2 | `phase2-2` | Keep AMD servers with build years in the last 6 years where data is present |
 | 2.3 | `phase2-3` | Build PDF report with charts |
 | 2 (all) | `run-phase2` | Run phases 2.1–2.3 using existing `working/csv/` files |
 | all | `run-all` | Run phases 1–2.3 only (`phase0` download is separate; use `--skip-phase1` to omit conversion) |
@@ -42,7 +42,7 @@ files rather than through the CLI module.
 | `data/raw/` | Phase 0: downloaded TOP500/Green500 Excel files |
 | `working/csv/` | Phase 1: normalized CSV conversions |
 | `working/amd_per_file/` | Phase 2.1: Processor Generation AMD servers per source file |
-| `working/amd_by_year/` | Phase 2.2: AMD servers for build years Y, Y-1, Y-2, Y-3 |
+| `working/amd_by_year/` | Phase 2.2: AMD servers for recent build years (up to 6 years with data) |
 | `output/` | Phase 2.3: PDF report with charts |
 
 ### Key modules
@@ -171,7 +171,7 @@ file is open in Excel or locked by OneDrive, close the file or use `--skip-clean
 - `working/amd_by_year/amd_servers_by_build_year.csv` — unique AMD servers from the latest list edition
 - `working/amd_by_year/amd_build_year_counts_by_edition.csv` — unique counts per build year per list file
 - `working/amd_by_year/amd_build_year_transitions.csv` — added/dropped servers between consecutive list files
-- `output/amd_servers_report.pdf` — 6-page report (see below)
+- `output/amd_servers_report.pdf` — 8-page report (see below)
 
 ### Cohort definitions
 
@@ -182,12 +182,14 @@ accelerators are excluded from this cohort but may appear in GPU-specific charts
 | Chart / output | Cohort |
 |----------------|--------|
 | AMD servers per list file (page 1) | Processor Generation AMD, all build years |
-| Build-year charts (pages 1–3) | Processor Generation AMD, build years Y…Y-3 (`BUILD_YEAR_SPAN = 4`) |
+| Build-year charts (pages 1–3) | Processor Generation AMD, up to 6 build years with data (`BUILD_YEAR_SPAN = 6`) |
 | Instinct / MI GPU charts (page 2) | Full list files; matches Instinct/MI in accelerator, processor, etc. |
 | Interconnect list transition (page 4, top) | Processor Generation AMD, all build years |
-| Interconnect + build year (page 4, bottom) | Processor Generation AMD, build years Y…Y-3 |
+| Interconnect + build year (page 4, bottom) | Processor Generation AMD, up to 6 build years with data |
 | Accelerator vendor stacked bar (page 5) | Processor Generation AMD; vendor from `Accelerator/Co-Processor` only |
 | Top systems tables (page 6) | Latest list edition; top 10 by Rank for Processor Technology AMD and Accelerator/Co-Processor AMD |
+| Processor / GPU / manufacturer trends (page 7) | All systems across all list editions |
+| Accelerator vendors all processors (page 8) | All systems; vendor from `Accelerator/Co-Processor` only |
 
 ### PDF report pages
 
@@ -200,6 +202,11 @@ accelerators are excluded from this cohort but may appear in GPU-specific charts
    - Processor Technology AMD (`Processor Technology` when present, else `Processor Generation`)
    - Accelerator/Co-Processor AMD (AMD Instinct / MI in the accelerator field)
    - Columns: Rank, Name, Manufacturer, Country, Year, Processor, Accelerator/Co-Processor
+7. **Market trends (all systems)** — line charts across list editions:
+   - CPU vendor from Processor Technology (AMD, Intel, NVIDIA, ARM, Other)
+   - GPU vendor from Accelerator/Co-Processor (AMD, Intel, NVIDIA, Other)
+   - Top 10 manufacturer groups (normalized names, e.g. ASUSTek, NVIDIA, HPE)
+8. **Accelerator vendors (all processors)** — same stacked bar as page 5 for all systems (any CPU)
 
 ## Re-iteration workflow
 

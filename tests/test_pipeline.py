@@ -31,8 +31,8 @@ def test_filterAmdGpuServers_detects_instinct_and_mi(sample_frames: dict[str, pd
     assert len(gpu_frame) == 2
 
 
-def test_recentBuildYears_uses_four_year_window() -> None:
-    assert io_utils.recentBuildYears(reference_year=2026) == [2026, 2025, 2024, 2023]
+def test_recentBuildYears_uses_six_year_window() -> None:
+    assert io_utils.recentBuildYears(reference_year=2026) == [2026, 2025, 2024, 2023, 2022, 2021]
 
 
 def test_filterAmdServersByBuildYears_keeps_recent_four_years(sample_frames: dict[str, pd.DataFrame]) -> None:
@@ -87,7 +87,7 @@ def test_phase_pipeline_end_to_end(tmp_path: Path) -> None:
 
     assert len(list(working_csv_dir.glob("*.csv"))) == 2
     assert int(manifest["amd_server_count"].sum()) == 6
-    assert len(by_year) == 3
+    assert len(by_year) == 4
     assert pdf_path.exists()
     assert pdf_path.stat().st_size > 0
 

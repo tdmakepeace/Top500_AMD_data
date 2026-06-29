@@ -1,9 +1,11 @@
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
 
-from top500list import amd_filter
+from top500list import amd_filter, io_utils
+from top500list.paths import BUILD_YEAR_SPAN
 
 SYSTEM_ID_COLUMN_CANDIDATES = [
     ["system", "id"],
@@ -92,6 +94,38 @@ def filterToBuildYears(frame: pd.DataFrame, years: list[int]) -> pd.DataFrame:
     allowed_years = set(years)
     filtered = working[working["_build_year"].isin(allowed_years)].copy()
     return filtered.drop(columns=["_build_year"])
+
+
+def collectBuildYearsPresent(frame: pd.DataFrame) -> set[int]:
+    if frame.empty:
+        return set()
+
+    year_column = amd_filter.resolveBuildYearColumn(list(frame.columns))
+    if year_column is None:
+        return set()
+
+    numeric_years = amd_filter.coerceBuildYear(frame[year_column]).dropna()
+    return {int(year) for year in numeric_years}
+
+
+def recentBuildYearsWithData(
+    frames: list[pd.DataFrame],
+    reference_year: int | None = None,
+    span: int | None = None,
+) -> list[int]:
+    if span is None:
+        span = BUILD_YEAR_SPAN
+
+    candidates = io_utils.recentBuildYears(reference_year=reference_year, span=span)
+    candidate_set = set(candidates)
+    present_years: set[int] = set()
+    for frame in frames:
+        present_years.update(collectBuildYearsPresent(frame) & candidate_set)
+
+    if not present_years:
+        return candidates
+
+    return [year for year in candidates if year in present_years]
 
 
 def countUniqueServersByBuildYear(frame: pd.DataFrame, years: list[int]) -> pd.Series:
@@ -243,7 +277,9 @@ def countUniqueServersByInterconnectFamily(
     if interconnect_column is None:
         return pd.Series(dtype="int64")
 
-    working[interconnect_column] = working[interconnect_column].fillna("Unknown").astype(str)
+    working[interconnect_column] = (
+        working[interconnect_column].fillna("Unknown").astype(str).apply(amd_filter.normalizeInterconnectFamily)
+    )
     counts = working[interconnect_column].value_counts().sort_index()
     return counts.astype(int)
 
@@ -262,7 +298,9 @@ def countUniqueServersByBuildYearInterconnect(
         return pd.Series(dtype="int64")
 
     with_years = attachBuildYear(working)
-    with_years[interconnect_column] = with_years[interconnect_column].fillna("Unknown").astype(str)
+    with_years[interconnect_column] = (
+        with_years[interconnect_column].fillna("Unknown").astype(str).apply(amd_filter.normalizeInterconnectFamily)
+    )
     with_years["_combo_label"] = with_years["_build_year"].astype(str) + " | " + with_years[interconnect_column]
     counts = with_years["_combo_label"].value_counts().sort_index()
     return counts.astype(int)
@@ -363,14 +401,29 @@ def topInterconnectFamiliesFromFrame(
 
 
 def buildPerEditionAcceleratorVendorCounts(amd_files: list[Path]) -> pd.DataFrame:
+    return _buildPerEditionAcceleratorVendorCounts(amd_files, require_amd_processor_generation=True)
+
+
+def buildPerEditionAcceleratorVendorCountsAllSystems(list_files: list[Path]) -> pd.DataFrame:
+    return _buildPerEditionAcceleratorVendorCounts(list_files, require_amd_processor_generation=False)
+
+
+def _buildPerEditionAcceleratorVendorCounts(
+    list_files: list[Path],
+    require_amd_processor_generation: bool,
+) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
-    for amd_path in sortAmdFilesByEdition(amd_files):
-        frame = pd.read_csv(amd_path)
+    for list_path in sortAmdFilesByEdition(list_files):
+        frame = pd.read_csv(list_path)
         deduped = dedupeServers(frame)
-        deduped = amd_filter.filterAmdProcessorGenerationServers(deduped)
-        source_csv = amd_path.stem.replace("_amd", "") + ".csv"
+        if require_amd_processor_generation:
+            deduped = amd_filter.filterAmdProcessorGenerationServers(deduped)
+
+        source_csv = list_path.name
         if "source_file" in frame.columns and not frame.empty:
             source_csv = str(frame["source_file"].iloc[0])
+        elif list_path.stem.endswith("_amd"):
+            source_csv = list_path.stem.replace("_amd", "") + ".csv"
 
         accelerator_column = amd_filter.resolveAcceleratorColumn(list(deduped.columns))
         if accelerator_column is None or deduped.empty:
@@ -403,6 +456,121 @@ def buildPerEditionAcceleratorVendorCounts(amd_files: list[Path]) -> pd.DataFram
 
     if not rows:
         return pd.DataFrame(columns=["source_csv", "list_edition", "accelerator_vendor", "server_count"])
+    return pd.DataFrame(rows)
+
+
+def _buildPerEditionSeriesCounts(
+    list_files: list[Path],
+    series_column: str,
+    categories: list[str],
+    classify_series: Callable[[pd.DataFrame], pd.Series],
+) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    for list_path in sortAmdFilesByEdition(list_files):
+        frame = pd.read_csv(list_path)
+        deduped = dedupeServers(frame)
+        source_csv = list_path.name
+        if "source_file" in frame.columns and not frame.empty:
+            source_csv = str(frame["source_file"].iloc[0])
+
+        classified = classify_series(deduped)
+        if classified.empty:
+            counts = pd.Series(dtype="int64")
+        else:
+            counts = classified.value_counts()
+        for category in categories:
+            rows.append(
+                {
+                    "source_csv": source_csv,
+                    "list_edition": parseListEditionKey(source_csv),
+                    series_column: category,
+                    "server_count": int(counts.get(category, 0)),
+                }
+            )
+
+    if not rows:
+        return pd.DataFrame(columns=["source_csv", "list_edition", series_column, "server_count"])
+    return pd.DataFrame(rows)
+
+
+def _attachProcessorTechnologyVendorSeries(frame: pd.DataFrame) -> pd.Series:
+    processor_column = amd_filter.resolveProcessorTechnologySourceColumn(list(frame.columns))
+    if processor_column is None or frame.empty:
+        return pd.Series(["Other"] * len(frame), index=frame.index)
+
+    return frame[processor_column].apply(amd_filter.classifyProcessorTechnologyVendor)
+
+
+def _attachGpuMarketVendorSeries(frame: pd.DataFrame) -> pd.Series:
+    accelerator_column = amd_filter.resolveAcceleratorColumn(list(frame.columns))
+    if accelerator_column is None or frame.empty:
+        return pd.Series(dtype="object")
+
+    return frame[accelerator_column].apply(amd_filter.classifyGpuMarketVendor).dropna()
+
+
+def _attachManufacturerGroupSeries(frame: pd.DataFrame) -> pd.Series:
+    manufacturer_column = amd_filter.resolveManufacturerColumn(list(frame.columns))
+    if manufacturer_column is None or frame.empty:
+        return pd.Series(["Unknown"] * len(frame), index=frame.index)
+
+    return frame[manufacturer_column].apply(amd_filter.normalizeManufacturerGroup)
+
+
+def buildPerEditionProcessorTechnologyVendorCounts(list_files: list[Path]) -> pd.DataFrame:
+    return _buildPerEditionSeriesCounts(
+        list_files,
+        "processor_technology_vendor",
+        amd_filter.PROCESSOR_TECHNOLOGY_VENDOR_CATEGORIES,
+        _attachProcessorTechnologyVendorSeries,
+    )
+
+
+def buildPerEditionGpuMarketVendorCounts(list_files: list[Path]) -> pd.DataFrame:
+    return _buildPerEditionSeriesCounts(
+        list_files,
+        "gpu_vendor",
+        amd_filter.GPU_MARKET_VENDOR_CATEGORIES,
+        _attachGpuMarketVendorSeries,
+    )
+
+
+def topManufacturerGroupsFromFrame(frame: pd.DataFrame, top_n: int = 10) -> list[str]:
+    if frame.empty:
+        return []
+
+    grouped = _attachManufacturerGroupSeries(dedupeServers(frame))
+    counts = grouped.value_counts()
+    return counts.head(top_n).index.astype(str).tolist()
+
+
+def buildPerEditionManufacturerCounts(list_files: list[Path], manufacturer_groups: list[str]) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    allowed_groups = set(manufacturer_groups)
+    for list_path in sortAmdFilesByEdition(list_files):
+        frame = pd.read_csv(list_path)
+        deduped = dedupeServers(frame)
+        source_csv = list_path.name
+        if "source_file" in frame.columns and not frame.empty:
+            source_csv = str(frame["source_file"].iloc[0])
+
+        grouped = _attachManufacturerGroupSeries(deduped)
+        if allowed_groups:
+            grouped = grouped[grouped.isin(allowed_groups)]
+
+        counts = grouped.value_counts()
+        for manufacturer_group in manufacturer_groups:
+            rows.append(
+                {
+                    "source_csv": source_csv,
+                    "list_edition": parseListEditionKey(source_csv),
+                    "manufacturer_group": manufacturer_group,
+                    "server_count": int(counts.get(manufacturer_group, 0)),
+                }
+            )
+
+    if not rows:
+        return pd.DataFrame(columns=["source_csv", "list_edition", "manufacturer_group", "server_count"])
     return pd.DataFrame(rows)
 
 
